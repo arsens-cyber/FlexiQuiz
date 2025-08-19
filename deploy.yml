@@ -1,0 +1,87 @@
+name: Deploy to Amazon ECS
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  AWS_REGION: us-east-1 # Change to your region
+  ECR_FRONTEND_REPO: internal-dashboard-staging-frontend # Change to your ECR repo name
+  ECR_BACKEND_REPO: internal-dashboard-staging-backend
+  ECS_SERVICE: internal-dashboard-staging-service # Change to your ECS service name
+  ECS_CLUSTER: internal-dashboard-staging-cluster # Change to your ECS cluster name
+  CONTAINER_FRONTEND_NAME: frontend-container
+  CONTAINER_BACKEND_NAME: backend-container
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Build and Deploy
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.AWS_IAM_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build, tag, and push frontend image to Amazon ECR
+        id: build-image-frontend
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # Assuming Dockerfile for frontend is at 'frontend/Dockerfile'
+          docker build -t $ECR_REGISTRY/$ECR_FRONTEND_REPO:$IMAGE_TAG ./frontend
+          docker push $ECR_REGISTRY/$ECR_FRONTEND_REPO:$IMAGE_TAG
+          echo "image=$ECR_REGISTRY/$ECR_FRONTEND_REPO:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Build, tag, and push backend image to Amazon ECR
+        id: build-image-backend
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # Assuming Dockerfile for backend is at 'backend/Dockerfile'
+          docker build -t $ECR_REGISTRY/$ECR_BACKEND_REPO:$IMAGE_TAG ./backend
+          docker push $ECR_REGISTRY/$ECR_BACKEND_REPO:$IMAGE_TAG
+          echo "image=$ECR_REGISTRY/$ECR_BACKEND_REPO:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Download task definition
+        run: |
+          aws ecs describe-task-definition --task-definition ${{ env.ECS_SERVICE }} --query taskDefinition > task-definition.json
+
+      - name: Fill in new image ID in task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ env.CONTAINER_FRONTEND_NAME }}
+          image: ${{ steps.build-image-frontend.outputs.image }}
+
+      # This step is needed because the action can only update one container at a time
+      # We create a new file and then use it in the next step
+      - name: Update backend image in the new task definition
+        run: |
+          jq '.containerDefinitions |= map(if .name == "${{ env.CONTAINER_BACKEND_NAME }}" then .image = "${{ steps.build-image-backend.outputs.image }}" else . end)' ${{ steps.task-def.outputs.task-definition }} > updated-task-definition.json
+
+      - name: Deploy Amazon ECS task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: updated-task-definition.json
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true

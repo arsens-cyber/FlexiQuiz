@@ -14,3 +14,44 @@ Container Registry: Amazon ECR repositories store the Docker images.
 CI/CD: A GitHub Actions workflow automates build and deployment.
 
 Observability: Amazon CloudWatch provides metrics and alerting via an SNS topic.
+
+Architecture Diagram:
+
+graph TD
+    subgraph "Internet"
+        User[End User]
+    end
+
+    subgraph "AWS Cloud"
+        DNS[Route 53] -->|Alias Record| ALB[Application Load Balancer]
+
+        subgraph "VPC"
+            ALB -- HTTPS/443 --> TG[Target Group]
+            TG --> FargateTask[ECS Fargate Task]
+
+            subgraph FargateTask
+                Frontend[Frontend Container<br>(React)]
+                Backend[Backend Container<br>(Node.js API)]
+            end
+        end
+
+        subgraph "Monitoring & Alerting"
+             FargateTask -- Metrics --> CW[CloudWatch Metrics]
+             CW -- CPU > 70% --> Alarm[CloudWatch Alarm]
+             Alarm -- Triggers --> SNS[SNS Topic]
+             SNS -- Notifies --> Email[Admin Email]
+        end
+
+        subgraph "CI/CD Pipeline"
+             GH[GitHub Repo] -- on push to main --> GHA[GitHub Actions]
+             GHA -- Builds & Pushes --> ECR[ECR Repositories<br>Frontend & Backend Images]
+             GHA -- Deploys --> FargateTask
+        end
+
+        subgraph "Security"
+             ACM[AWS Certificate Manager<br>TLS Certificate] --> ALB
+             ALB -- Authenticates --> Cognito[Cognito User Pool]
+        end
+    end
+
+    User -- HTTPS Request --> DNS

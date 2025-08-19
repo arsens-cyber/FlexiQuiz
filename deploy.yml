@@ -6,11 +6,11 @@ on:
       - main
 
 env:
-  AWS_REGION: us-east-1 # Change to your region
-  ECR_FRONTEND_REPO: internal-dashboard-staging-frontend # Change to your ECR repo name
+  AWS_REGION: us-east-1
+  ECR_FRONTEND_REPO: internal-dashboard-staging-frontend
   ECR_BACKEND_REPO: internal-dashboard-staging-backend
-  ECS_SERVICE: internal-dashboard-staging-service # Change to your ECS service name
-  ECS_CLUSTER: internal-dashboard-staging-cluster # Change to your ECS cluster name
+  ECS_SERVICE: internal-dashboard-staging-service
+  ECS_CLUSTER: internal-dashboard-staging-cluster
   CONTAINER_FRONTEND_NAME: frontend-container
   CONTAINER_BACKEND_NAME: backend-container
 
